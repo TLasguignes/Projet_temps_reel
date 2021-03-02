@@ -76,6 +76,10 @@ private:
     RT_TASK th_openComRobot;
     RT_TASK th_startRobot;
     RT_TASK th_move;
+    RT_TASK th_battery;
+    //RT_TASK th_lostCom_SupMon;
+    
+    //RT_TASK th_openCamera;
     
     /**********************************************************************/
     /* Mutex                                                              */
@@ -132,6 +136,18 @@ private:
      */
     void MoveTask(void *arg);
     
+    /**
+     * @brief Thread sending the battery's level.
+     */
+    void BatteryTask(void *arg);
+    
+
+   
+    /**
+     * @brief Thread opening camera.
+     */
+//    void OpenCamera(void *arg);
+    
     /**********************************************************************/
     /* Queue services                                                     */
     /**********************************************************************/
@@ -148,6 +164,12 @@ private:
      * @return Message read
      */
     Message *ReadInQueue(RT_QUEUE *queue);
+    
+    /**
+    * @brief Checks errors comimg from the robot
+    */   
+    Message *WriteSurveillance(Message* msg);
+    
 
 };
 

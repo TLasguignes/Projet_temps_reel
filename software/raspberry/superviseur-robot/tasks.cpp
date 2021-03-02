@@ -495,7 +495,26 @@ Message *Tasks::ReadInQueue(RT_QUEUE *queue) {
         cout << "@msg :" << msg << endl << flush;
     } /**/
 
+        
     return msg;
 }
 
+Message *Tasks::WriteSurveillance(Message* msg) {
 
+    Message *answer = robot.Write(msg);
+   
+    static uint8_t error_counter = 0;
+    if((answer->GetID() == MESSAGE_ANSWER_ROBOT_TIMEOUT)||(answer->GetID() == MESSAGE_ANSWER_COM_ERROR)){
+        error_counter++;
+        if (error_counter > 3) {
+            rt_mutex_acquire(&mutex_robot, TM_INFINITE);
+            robot.Write(new Message(MESSAGE_ROBOT_STOP));
+            robot.Close(); //close link 
+            rt_mutex_release(&mutex_robot);
+            error_counter = 0;
+        }
+    } else { 
+        error_counter = 0;
+    }
+    return answer;
+}
