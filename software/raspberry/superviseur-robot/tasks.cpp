@@ -73,6 +73,14 @@ void Tasks::Init() {
         cerr << "Error mutex create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
+    if (err = rt_mutex_create(&mutex_error_counter, NULL)) {
+        cerr << "Error mutex create: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
+   if (err = rt_mutex_create(&mutex_openCom, NULL)) {
+        cerr << "Error mutex create: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
     cout << "Mutexes created successfully" << endl << flush;
 
     /**************************************************************************************/
@@ -280,13 +288,13 @@ void Tasks::ReceiveFromMonTask(void *arg) {
         cout << "Rcv <= " << msgRcv->ToString() << endl << flush;
 
         if (msgRcv->CompareID(MESSAGE_MONITOR_LOST)) {
-            delete(msgRcv);
+            
             rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
             robotStarted = 0;
             rt_mutex_release(&mutex_robotStarted);
             
+            //WriteSurveillance(new Message(MESSAGE_ROBOT_STOP));
             rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-            robot.Write(new Message(MESSAGE_ROBOT_STOP));
             robot.Close(); //close link 
             rt_mutex_release(&mutex_robot);
             // monitor
@@ -294,18 +302,13 @@ void Tasks::ReceiveFromMonTask(void *arg) {
             monitor.Close(); //close socket
             rt_mutex_release(&mutex_monitor);
             
-            rt_task_delete(&th_server);
-            rt_task_delete(&th_sendToMon);
-            rt_task_delete(&th_receiveFromMon);
-            rt_task_delete(&th_openComRobot);
-            rt_task_delete(&th_startRobot);
-            rt_task_delete(&th_move);
-            rt_task_delete(&th_battery);
+
             
-            Init();
-            Run();
-            Join();
             //inialisation toutes les taches
+           
+            // Send to mon
+            // Server Task
+            // Receivefrommon
             
             // FERMER LA CAMERA
             //exit(-1); //stop sup.
@@ -349,7 +352,11 @@ void Tasks::OpenComRobot(void *arg) {
         rt_mutex_release(&mutex_robot);
         cout << status;
         cout << ")" << endl << flush;
-
+        
+        rt_mutex_acquire(&mutex_openCom, TM_INFINITE);
+        openCom = 1;
+        rt_mutex_release(&mutex_openCom);
+        
         Message * msgSend;
         if (status < 0) {
             msgSend = new Message(MESSAGE_ANSWER_NACK);
@@ -358,12 +365,14 @@ void Tasks::OpenComRobot(void *arg) {
         }
         WriteInQueue(&q_messageToMon, msgSend); // msgSend will be deleted by sendToMon
     }
+    
 }
 
 /**
  * @brief Thread starting the communication with the robot.
  */
 void Tasks::StartRobotTask(void *arg) {
+    int oc = 0;
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
     // Synchronization barrier (waiting that all tasks are starting)
     rt_sem_p(&sem_barrier, TM_INFINITE);
@@ -375,23 +384,34 @@ void Tasks::StartRobotTask(void *arg) {
 
         Message * msgSend;
         rt_sem_p(&sem_startRobot, TM_INFINITE);
-        cout << "Start robot without watchdog (";
-        rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-        msgSend = robot.Write(robot.StartWithoutWD());
-        rt_mutex_release(&mutex_robot);
-        cout << msgSend->GetID();
-        cout << ")" << endl;
+        
+        rt_mutex_acquire(&mutex_openCom, TM_INFINITE);
+        oc = openCom;
+        rt_mutex_release(&mutex_openCom);
+        
+        if (oc == 0) {
+            rt_sem_v(&sem_openComRobot);
+        }      
+        if (oc == 1) {
+            cout << "Start robot without watchdog (";
+            // je peux communiquer qvec le robot? ack.
+            rt_mutex_acquire(&mutex_robot, TM_INFINITE);
+            msgSend = WriteSurveillance(robot.StartWithoutWD());
+            rt_mutex_release(&mutex_robot);
+            cout << msgSend->GetID();
+            cout << ")" << endl;
 
-        cout << "Movement answer: " << msgSend->ToString() << endl << flush;
-        WriteInQueue(&q_messageToMon, msgSend);  // msgSend will be deleted by sendToMon
+            cout << "Movement answer: " << msgSend->ToString() << endl << flush;
+            WriteInQueue(&q_messageToMon, msgSend);  // msgSend will be deleted by sendToMon
 
-        if (msgSend->GetID() == MESSAGE_ANSWER_ACK) {
-            rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
-            robotStarted = 1;
-            rt_mutex_release(&mutex_robotStarted);
-        }
+            if (msgSend->GetID() == MESSAGE_ANSWER_ACK) {
+                rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
+                robotStarted = 1;
+                rt_mutex_release(&mutex_robotStarted);
+            }
     
-    }
+        }
+}
 }
 
 /**
@@ -423,9 +443,9 @@ void Tasks::MoveTask(void *arg) {
             
             cout << " move: " << cpMove;
             
-            rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-            robot.Write(new Message((MessageID)cpMove));
-            rt_mutex_release(&mutex_robot);
+           
+            WriteSurveillance(new Message((MessageID)cpMove));
+            
         }
         cout << endl << flush;
     }
@@ -437,12 +457,11 @@ void Tasks::MoveTask(void *arg) {
  */
 
 void Tasks::BatteryTask(void *arg) {
-    
     int rs;
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
     // Synchronization barrier (waiting that all tasks are starting)
     rt_sem_p(&sem_barrier, TM_INFINITE);
-    
+
     /**************************************************************************************/
     /* The task starts here                                                               */
     /**************************************************************************************/
@@ -456,13 +475,13 @@ void Tasks::BatteryTask(void *arg) {
         rs = robotStarted;
         rt_mutex_release(&mutex_robotStarted);
         if (rs == 1) {
-           rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-           msgSend = (MessageBattery *)robot.Write(robot.GetBattery());
-           rt_mutex_release(&mutex_robot);
+
+             msgSend = (MessageBattery *)WriteSurveillance(robot.GetBattery());
+           //msgSend = (MessageBattery *)robot.Write(robot.GetBattery());
+
            cout << endl <<"Battery level is: (" << msgSend->GetLevel()<<")"<< flush;/*vider buffer*/
            WriteInQueue(&q_messageToMon, msgSend);
         }
-       
     }
 }
 
@@ -500,21 +519,34 @@ Message *Tasks::ReadInQueue(RT_QUEUE *queue) {
 }
 
 Message *Tasks::WriteSurveillance(Message* msg) {
-
+    rt_mutex_acquire(&mutex_robot, TM_INFINITE);
     Message *answer = robot.Write(msg);
-   
-    static uint8_t error_counter = 0;
-    if((answer->GetID() == MESSAGE_ANSWER_ROBOT_TIMEOUT)||(answer->GetID() == MESSAGE_ANSWER_COM_ERROR)){
-        error_counter++;
-        if (error_counter > 3) {
+    rt_mutex_release(&mutex_robot);  
+    
+    rt_mutex_acquire(&mutex_error_counter, TM_INFINITE); 
+    if((answer->GetID() == MESSAGE_ANSWER_ROBOT_TIMEOUT)||(answer->GetID() == MESSAGE_ANSWER_ROBOT_ERROR)||(answer->GetID() == MESSAGE_ANSWER_ROBOT_UNKNOWN_COMMAND)){      
+        error_counter++;  
+       if (error_counter > 3) {
             rt_mutex_acquire(&mutex_robot, TM_INFINITE);
             robot.Write(new Message(MESSAGE_ROBOT_STOP));
+            
             robot.Close(); //close link 
-            rt_mutex_release(&mutex_robot);
-            error_counter = 0;
+            rt_mutex_release(&mutex_robot);   
+            
+            rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
+            robotStarted = 0;
+            rt_mutex_release(&mutex_robotStarted);
+            
+            rt_mutex_acquire(&mutex_openCom, TM_INFINITE);
+            openCom = 0;
+            rt_mutex_release(&mutex_openCom); 
+            
+            error_counter = 0;      
         }
     } else { 
         error_counter = 0;
-    }
-    return answer;
+   }
+    rt_mutex_release(&mutex_error_counter);
+    
+   return answer;
 }
