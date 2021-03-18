@@ -288,7 +288,7 @@ void Tasks::ReceiveFromMonTask(void *arg) {
         cout << "Rcv <= " << msgRcv->ToString() << endl << flush;
 
         if (msgRcv->CompareID(MESSAGE_MONITOR_LOST)) {
-            
+            delete(msgRcv);
             rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
             robotStarted = 0;
             rt_mutex_release(&mutex_robotStarted);
@@ -305,10 +305,10 @@ void Tasks::ReceiveFromMonTask(void *arg) {
 
             
             //inialisation toutes les taches
-           
+           // Receivefrommon
             // Send to mon
             // Server Task
-            // Receivefrommon
+            
             
             // FERMER LA CAMERA
             //exit(-1); //stop sup.
@@ -365,7 +365,6 @@ void Tasks::OpenComRobot(void *arg) {
         }
         WriteInQueue(&q_messageToMon, msgSend); // msgSend will be deleted by sendToMon
     }
-    
 }
 
 /**
@@ -384,33 +383,28 @@ void Tasks::StartRobotTask(void *arg) {
 
         Message * msgSend;
         rt_sem_p(&sem_startRobot, TM_INFINITE);
-        
         rt_mutex_acquire(&mutex_openCom, TM_INFINITE);
-        oc = openCom;
+        oc = robotStarted;
         rt_mutex_release(&mutex_openCom);
-        
-        if (oc == 0) {
-            rt_sem_v(&sem_openComRobot);
-        }      
         if (oc == 1) {
-            cout << "Start robot without watchdog (";
-            // je peux communiquer qvec le robot? ack.
-            rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-            msgSend = WriteSurveillance(robot.StartWithoutWD());
-            rt_mutex_release(&mutex_robot);
-            cout << msgSend->GetID();
-            cout << ")" << endl;
+        cout << "Start robot without watchdog (";
+        // je peux communiquer qvec le robot? ack.
+        rt_mutex_acquire(&mutex_robot, TM_INFINITE);
+        msgSend = WriteSurveillance(robot.StartWithoutWD());
+        rt_mutex_release(&mutex_robot);
+        cout << msgSend->GetID();
+        cout << ")" << endl;
 
-            cout << "Movement answer: " << msgSend->ToString() << endl << flush;
-            WriteInQueue(&q_messageToMon, msgSend);  // msgSend will be deleted by sendToMon
+        cout << "Movement answer: " << msgSend->ToString() << endl << flush;
+        WriteInQueue(&q_messageToMon, msgSend);  // msgSend will be deleted by sendToMon
 
-            if (msgSend->GetID() == MESSAGE_ANSWER_ACK) {
-                rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
-                robotStarted = 1;
-                rt_mutex_release(&mutex_robotStarted);
-            }
-    
+        if (msgSend->GetID() == MESSAGE_ANSWER_ACK) {
+            rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
+            robotStarted = 1;
+            rt_mutex_release(&mutex_robotStarted);
         }
+    
+    }
 }
 }
 
@@ -529,7 +523,7 @@ Message *Tasks::WriteSurveillance(Message* msg) {
        if (error_counter > 3) {
             rt_mutex_acquire(&mutex_robot, TM_INFINITE);
             robot.Write(new Message(MESSAGE_ROBOT_STOP));
-            
+            // init des tâches
             robot.Close(); //close link 
             rt_mutex_release(&mutex_robot);   
             
@@ -541,6 +535,7 @@ Message *Tasks::WriteSurveillance(Message* msg) {
             openCom = 0;
             rt_mutex_release(&mutex_openCom); 
             
+            rt_sem_v(&sem_openComRobot);
             error_counter = 0;      
         }
     } else { 
