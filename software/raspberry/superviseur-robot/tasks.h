@@ -65,7 +65,10 @@ private:
     ComMonitor monitor;
     ComRobot robot;
     int robotStarted = 0;
+    int openCom = 0;
     int move = MESSAGE_ROBOT_STOP;
+    uint8_t error_counter = 0;
+    uint8_t task_ready = 1;
     
     /**********************************************************************/
     /* Tasks                                                              */
@@ -88,6 +91,8 @@ private:
     RT_MUTEX mutex_robot;
     RT_MUTEX mutex_robotStarted;
     RT_MUTEX mutex_move;
+    RT_MUTEX mutex_error_counter;
+    RT_MUTEX mutex_openCom;
 
     /**********************************************************************/
     /* Semaphores                                                         */
